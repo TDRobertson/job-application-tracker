@@ -20,17 +20,26 @@ class JobTrackerApp(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('Job Application Tracker')
-        self.setGeometry(100, 100, 1000, 600)
+        self.setGeometry(100, 100, 1000, 700)  # Made window taller
 
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
 
+        # Application counter
+        counter_layout = QHBoxLayout()
+        self.counter_label = QLabel('Total Applications: 0')
+        self.counter_label.setStyleSheet('font-size: 14px; font-weight: bold;')
+        counter_layout.addWidget(self.counter_label)
+        counter_layout.addStretch()
+        layout.addLayout(counter_layout)
+
         # Input form
-        form_layout = QHBoxLayout()
+        form_layout = QVBoxLayout()  # Changed to vertical layout
         
         # Company name input with enhanced autocomplete
+        company_layout = QHBoxLayout()
         company_label = QLabel('Company:')
         self.company_input = QLineEdit()
         self.company_model = QStringListModel()
@@ -41,10 +50,31 @@ class JobTrackerApp(QMainWindow):
         self.company_input.setCompleter(self.company_completer)
         self.company_input.textChanged.connect(self.update_company_suggestions)
         self.update_company_completer()  # Initial population
-        form_layout.addWidget(company_label)
-        form_layout.addWidget(self.company_input)
+        company_layout.addWidget(company_label)
+        company_layout.addWidget(self.company_input)
+        form_layout.addLayout(company_layout)
+
+        # Company website and description
+        company_details_layout = QHBoxLayout()
+        
+        # Website URL
+        website_label = QLabel('Website:')
+        self.website_input = QLineEdit()
+        self.website_input.setPlaceholderText('https://...')
+        company_details_layout.addWidget(website_label)
+        company_details_layout.addWidget(self.website_input)
+        
+        form_layout.addLayout(company_details_layout)
+        
+        # Company description
+        description_label = QLabel('Description:')
+        self.description_input = QLineEdit()
+        self.description_input.setPlaceholderText('Optional company description...')
+        form_layout.addWidget(description_label)
+        form_layout.addWidget(self.description_input)
 
         # Position input with enhanced autocomplete
+        position_layout = QHBoxLayout()
         position_label = QLabel('Position:')
         self.position_input = QLineEdit()
         self.position_model = QStringListModel()
@@ -55,8 +85,18 @@ class JobTrackerApp(QMainWindow):
         self.position_input.setCompleter(self.position_completer)
         self.position_input.textChanged.connect(self.update_position_suggestions)
         self.update_position_completer()  # Initial population
-        form_layout.addWidget(position_label)
-        form_layout.addWidget(self.position_input)
+        position_layout.addWidget(position_label)
+        position_layout.addWidget(self.position_input)
+        form_layout.addLayout(position_layout)
+
+        # Status selection
+        status_layout = QHBoxLayout()
+        status_label = QLabel('Status:')
+        self.status_input = QComboBox()
+        self.status_input.addItems(['Applied', 'Interview', 'Rejected', 'Accepted'])
+        status_layout.addWidget(status_label)
+        status_layout.addWidget(self.status_input)
+        form_layout.addLayout(status_layout)
 
         # Add button
         add_button = QPushButton('Add Application')
@@ -139,6 +179,12 @@ class JobTrackerApp(QMainWindow):
         update_layout.addWidget(QLabel('Interview Round:'))
         update_layout.addWidget(self.round_combo)
 
+        # Status selection for updates
+        self.update_status_combo = QComboBox()
+        self.update_status_combo.addItems(['Applied', 'Interview', 'Rejected', 'Accepted'])
+        update_layout.addWidget(QLabel('Status:'))
+        update_layout.addWidget(self.update_status_combo)
+
         # Update button
         update_button = QPushButton('Update Status')
         update_button.clicked.connect(self.update_application)
@@ -202,16 +248,16 @@ class JobTrackerApp(QMainWindow):
     def add_application(self):
         company = self.company_input.text().strip()
         position = self.position_input.text().strip()
+        status = self.status_input.currentText()
+        website = self.website_input.text().strip()
+        description = self.description_input.text().strip()
 
         if not company or not position:
-            QMessageBox.warning(self, 'Error', 'Please fill in all fields')
+            QMessageBox.warning(self, 'Error', 'Please fill in company and position fields')
             return
 
-        # Get company description (simplified for now)
-        company_description = self.get_company_description(company)
-        
         # Add to database
-        self.db.add_application(company, position, company_description)
+        self.db.add_application(company, position, description, website)
         
         # Update completers with new values
         self.update_company_completer()
@@ -220,6 +266,8 @@ class JobTrackerApp(QMainWindow):
         # Clear inputs
         self.company_input.clear()
         self.position_input.clear()
+        self.website_input.clear()
+        self.description_input.clear()
         
         # Reload data
         self.load_applications()
@@ -429,6 +477,10 @@ class JobTrackerApp(QMainWindow):
         self.sort_combo.setCurrentText('Date (Newest First)')
         self.sort_applications()
 
+        # Update application counter
+        total_apps = self.db.get_total_applications()
+        self.counter_label.setText(f'Total Applications: {total_apps}')
+
     def update_application(self):
         if self.company_combo.currentIndex() == -1:
             QMessageBox.warning(self, 'Error', 'Please select a company')
@@ -448,8 +500,10 @@ class JobTrackerApp(QMainWindow):
             
         application_id = selected_item.data(0, Qt.ItemDataRole.UserRole)
         round_number = int(self.round_combo.currentText())
+        status = self.update_status_combo.currentText()
         
         self.db.update_interview_round(application_id, round_number)
+        self.db.update_application_status(application_id, status)
         self.load_applications()
 
     def closeEvent(self, event):

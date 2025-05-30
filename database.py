@@ -12,7 +12,8 @@ class Database:
             CREATE TABLE IF NOT EXISTS companies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                description TEXT
+                description TEXT,
+                website_url TEXT
             )
         ''')
         
@@ -30,14 +31,14 @@ class Database:
         ''')
         self.conn.commit()
 
-    def add_application(self, company_name, position, company_description=None):
+    def add_application(self, company_name, position, company_description=None, company_website=None):
         cursor = self.conn.cursor()
         
         # First, ensure company exists
         cursor.execute('''
-            INSERT OR IGNORE INTO companies (name, description)
-            VALUES (?, ?)
-        ''', (company_name, company_description))
+            INSERT OR IGNORE INTO companies (name, description, website_url)
+            VALUES (?, ?, ?)
+        ''', (company_name, company_description, company_website))
         
         # Get company ID
         cursor.execute('SELECT id FROM companies WHERE name = ?', (company_name,))
@@ -46,9 +47,9 @@ class Database:
         # Add application
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            INSERT INTO applications (company_id, position, application_date)
-            VALUES (?, ?, ?)
-        ''', (company_id, position, current_time))
+            INSERT INTO applications (company_id, position, application_date, status)
+            VALUES (?, ?, ?, ?)
+        ''', (company_id, position, current_time, 'Applied'))
         self.conn.commit()
         return cursor.lastrowid
 
@@ -99,11 +100,12 @@ class Database:
 
     def update_application_status(self, application_id, status):
         cursor = self.conn.cursor()
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
             UPDATE applications 
-            SET status = ?
+            SET status = ?, last_contact_date = ?
             WHERE id = ?
-        ''', (status, application_id))
+        ''', (status, current_time, application_id))
         self.conn.commit()
 
     def get_unique_companies(self):
@@ -115,6 +117,20 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute('SELECT DISTINCT position FROM applications ORDER BY position')
         return [row[0] for row in cursor.fetchall()]
+
+    def get_total_applications(self):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM applications')
+        return cursor.fetchone()[0]
+
+    def get_company_info(self, company_id):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT name, description, website_url
+            FROM companies
+            WHERE id = ?
+        ''', (company_id,))
+        return cursor.fetchone()
 
     def __del__(self):
         self.conn.close() 
