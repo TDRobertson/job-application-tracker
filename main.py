@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
                             QComboBox, QTreeWidget, QTreeWidgetItem, QMessageBox,
                             QCompleter, QHeaderView, QToolBar)
-from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtCore import Qt, QStringListModel, QUrl
+from PyQt6.QtGui import QDesktopServices
 from database import Database
 from cache import CompanyCache
 
@@ -137,9 +138,11 @@ class JobTrackerApp(QMainWindow):
 
         # Applications tree
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['Company/Position', 'Application Date', 'Interview Round', 'Last Contact', 'Status'])
-        self.tree.setColumnWidth(0, 300)  # Make the first column wider
+        self.tree.setHeaderLabels(['Company/Position', 'Website', 'Application Date', 'Interview Round', 'Last Contact', 'Status'])
+        self.tree.setColumnWidth(0, 200)  # Company/Position
+        self.tree.setColumnWidth(1, 200)  # Website
         self.tree.setAlternatingRowColors(True)
+        self.tree.itemClicked.connect(self.handle_tree_click)
         layout.addWidget(self.tree)
 
         # Tree control buttons
@@ -367,21 +370,21 @@ class JobTrackerApp(QMainWindow):
             
             # Sort applications based on selected option
             if sort_option == 'Date (Newest First)':
-                applications.sort(key=lambda x: x.text(1), reverse=True)
+                applications.sort(key=lambda x: x.text(2), reverse=True)
             elif sort_option == 'Date (Oldest First)':
-                applications.sort(key=lambda x: x.text(1))
+                applications.sort(key=lambda x: x.text(2))
             elif sort_option == 'Position (A-Z)':
                 applications.sort(key=lambda x: x.text(0))
             elif sort_option == 'Position (Z-A)':
                 applications.sort(key=lambda x: x.text(0), reverse=True)
             elif sort_option == 'Status (A-Z)':
-                applications.sort(key=lambda x: x.text(4))
+                applications.sort(key=lambda x: x.text(5))
             elif sort_option == 'Status (Z-A)':
-                applications.sort(key=lambda x: x.text(4), reverse=True)
+                applications.sort(key=lambda x: x.text(5), reverse=True)
             elif sort_option == 'Interview Round (High-Low)':
-                applications.sort(key=lambda x: int(x.text(2)), reverse=True)
+                applications.sort(key=lambda x: int(x.text(3)), reverse=True)
             elif sort_option == 'Interview Round (Low-High)':
-                applications.sort(key=lambda x: int(x.text(2)))
+                applications.sort(key=lambda x: int(x.text(3)))
             
             # Add sorted applications back
             for app in applications:
@@ -418,7 +421,7 @@ class JobTrackerApp(QMainWindow):
             for j in range(company_item.childCount()):
                 app_item = company_item.child(j)
                 position = app_item.text(0).lower()
-                status = app_item.text(4)
+                status = app_item.text(5)
                 
                 # Check if application matches filters
                 app_visible = True
@@ -446,6 +449,22 @@ class JobTrackerApp(QMainWindow):
         self.status_filter.setCurrentText('All')
         self.filter_applications()
 
+    def handle_tree_click(self, item, column):
+        # If the website column is clicked and it has a valid URL, open it
+        if column == 1:
+            url = item.text(1)
+            if url and urlparse(url).scheme in ('http', 'https'):
+                QDesktopServices.openUrl(QUrl(url))
+
+    def get_status_color(self, status):
+        colors = {
+            'Applied': '#4a90e2',    # Blue
+            'Interview': '#f5a623',  # Orange
+            'Rejected': '#d0021b',   # Red
+            'Accepted': '#7ed321'    # Green
+        }
+        return colors.get(status, '#000000')  # Default to black if status not found
+
     def load_applications(self):
         self.tree.clear()
         self.company_combo.clear()
@@ -455,6 +474,7 @@ class JobTrackerApp(QMainWindow):
         
         # Dictionary to store company items
         company_items = {}
+        company_websites = {}
         
         for app in applications:
             company_id = app[0]
@@ -474,39 +494,26 @@ class JobTrackerApp(QMainWindow):
             
             # Create company item if it doesn't exist
             if company_id not in company_items:
+                company_info = self.db.get_company_info(company_id)
+                website = ''
+                if company_info:
+                    _, _, website = company_info
                 company_item = QTreeWidgetItem(self.tree)
                 company_item.setText(0, company_name)
-                
-                # Get company info for tooltip
-                company_info = self.db.get_company_info(company_id)
-                if company_info:
-                    name, description, website = company_info
-                    tooltip = f"<b>{name}</b>"
-                    if website:
-                        tooltip += f"<br><a href='{website}'>{website}</a>"
-                    if description:
-                        tooltip += f"<br><br>{description}"
-                    company_item.setToolTip(0, tooltip)
-                
+                company_item.setText(1, website or '')
                 company_items[company_id] = company_item
+                company_websites[company_id] = website
                 self.company_combo.addItem(f"{company_name}", company_id)
             
             # Create application item
             app_item = QTreeWidgetItem(company_items[company_id])
             app_item.setText(0, position)
-            app_item.setText(1, application_date)
-            app_item.setText(2, str(interview_round))
-            app_item.setText(3, str(last_contact or ''))
-            app_item.setText(4, status)
+            app_item.setText(1, '')  # No website for application rows
+            app_item.setText(2, application_date)
+            app_item.setText(3, str(interview_round))
+            app_item.setText(4, str(last_contact or ''))
+            app_item.setText(5, status)
             app_item.setData(0, Qt.ItemDataRole.UserRole, application_id)
-            
-            # Add tooltip for application
-            app_tooltip = f"<b>Position:</b> {position}<br>"
-            app_tooltip += f"<b>Status:</b> {status}<br>"
-            app_tooltip += f"<b>Interview Round:</b> {interview_round}<br>"
-            if last_contact:
-                app_tooltip += f"<b>Last Contact:</b> {last_contact}"
-            app_item.setToolTip(0, app_tooltip)
         
         # Apply initial sort (newest first)
         self.sort_combo.setCurrentText('Date (Newest First)')
