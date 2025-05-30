@@ -1,6 +1,8 @@
 import sys
 import requests
 import time
+import re
+from urllib.parse import urlparse
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
                             QComboBox, QTreeWidget, QTreeWidgetItem, QMessageBox,
@@ -60,7 +62,8 @@ class JobTrackerApp(QMainWindow):
         # Website URL
         website_label = QLabel('Website:')
         self.website_input = QLineEdit()
-        self.website_input.setPlaceholderText('https://...')
+        self.website_input.setPlaceholderText('https://www.example.com')
+        self.website_input.setToolTip('Enter a valid URL (e.g., https://www.example.com)')
         company_details_layout.addWidget(website_label)
         company_details_layout.addWidget(self.website_input)
         
@@ -70,6 +73,7 @@ class JobTrackerApp(QMainWindow):
         description_label = QLabel('Description:')
         self.description_input = QLineEdit()
         self.description_input.setPlaceholderText('Optional company description...')
+        self.description_input.setToolTip('Enter any additional information about the company')
         form_layout.addWidget(description_label)
         form_layout.addWidget(self.description_input)
 
@@ -245,6 +249,15 @@ class JobTrackerApp(QMainWindow):
         positions.sort(key=lambda x: (-position_counts.get(x, 0), x.lower()))
         self.position_model.setStringList(positions)
 
+    def validate_url(self, url):
+        if not url:  # Empty URL is valid (optional field)
+            return True
+        try:
+            result = urlparse(url)
+            return all([result.scheme, result.netloc])
+        except:
+            return False
+
     def add_application(self):
         company = self.company_input.text().strip()
         position = self.position_input.text().strip()
@@ -254,6 +267,10 @@ class JobTrackerApp(QMainWindow):
 
         if not company or not position:
             QMessageBox.warning(self, 'Error', 'Please fill in company and position fields')
+            return
+
+        if website and not self.validate_url(website):
+            QMessageBox.warning(self, 'Error', 'Please enter a valid URL (e.g., https://www.example.com)')
             return
 
         # Add to database
@@ -459,8 +476,18 @@ class JobTrackerApp(QMainWindow):
             if company_id not in company_items:
                 company_item = QTreeWidgetItem(self.tree)
                 company_item.setText(0, company_name)
-                if company_description:
-                    company_item.setToolTip(0, company_description)
+                
+                # Get company info for tooltip
+                company_info = self.db.get_company_info(company_id)
+                if company_info:
+                    name, description, website = company_info
+                    tooltip = f"<b>{name}</b>"
+                    if website:
+                        tooltip += f"<br><a href='{website}'>{website}</a>"
+                    if description:
+                        tooltip += f"<br><br>{description}"
+                    company_item.setToolTip(0, tooltip)
+                
                 company_items[company_id] = company_item
                 self.company_combo.addItem(f"{company_name}", company_id)
             
@@ -472,6 +499,14 @@ class JobTrackerApp(QMainWindow):
             app_item.setText(3, str(last_contact or ''))
             app_item.setText(4, status)
             app_item.setData(0, Qt.ItemDataRole.UserRole, application_id)
+            
+            # Add tooltip for application
+            app_tooltip = f"<b>Position:</b> {position}<br>"
+            app_tooltip += f"<b>Status:</b> {status}<br>"
+            app_tooltip += f"<b>Interview Round:</b> {interview_round}<br>"
+            if last_contact:
+                app_tooltip += f"<b>Last Contact:</b> {last_contact}"
+            app_item.setToolTip(0, app_tooltip)
         
         # Apply initial sort (newest first)
         self.sort_combo.setCurrentText('Date (Newest First)')
