@@ -3,8 +3,9 @@ import requests
 import time
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                            QComboBox, QTableWidget, QTableWidgetItem, QMessageBox)
-from PyQt6.QtCore import Qt
+                            QComboBox, QTreeWidget, QTreeWidgetItem, QMessageBox,
+                            QCompleter, QHeaderView, QToolBar)
+from PyQt6.QtCore import Qt, QStringListModel
 from database import Database
 from cache import CompanyCache
 
@@ -19,7 +20,7 @@ class JobTrackerApp(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('Job Application Tracker')
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1000, 600)
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -29,15 +30,31 @@ class JobTrackerApp(QMainWindow):
         # Input form
         form_layout = QHBoxLayout()
         
-        # Company name input
+        # Company name input with enhanced autocomplete
         company_label = QLabel('Company:')
         self.company_input = QLineEdit()
+        self.company_model = QStringListModel()
+        self.company_completer = QCompleter()
+        self.company_completer.setModel(self.company_model)
+        self.company_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.company_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.company_input.setCompleter(self.company_completer)
+        self.company_input.textChanged.connect(self.update_company_suggestions)
+        self.update_company_completer()  # Initial population
         form_layout.addWidget(company_label)
         form_layout.addWidget(self.company_input)
 
-        # Position input
+        # Position input with enhanced autocomplete
         position_label = QLabel('Position:')
         self.position_input = QLineEdit()
+        self.position_model = QStringListModel()
+        self.position_completer = QCompleter()
+        self.position_completer.setModel(self.position_model)
+        self.position_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.position_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.position_input.setCompleter(self.position_completer)
+        self.position_input.textChanged.connect(self.update_position_suggestions)
+        self.update_position_completer()  # Initial population
         form_layout.addWidget(position_label)
         form_layout.addWidget(self.position_input)
 
@@ -48,14 +65,65 @@ class JobTrackerApp(QMainWindow):
 
         layout.addLayout(form_layout)
 
-        # Applications table
-        self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels([
-            'ID', 'Company', 'Position', 'Application Date',
-            'Interview Round', 'Last Contact', 'Status'
-        ])
-        layout.addWidget(self.table)
+        # Search and filter section
+        search_layout = QHBoxLayout()
+        
+        # Search input
+        search_label = QLabel('Search:')
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText('Search companies, positions, or status...')
+        self.search_input.textChanged.connect(self.filter_applications)
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_input)
+        
+        # Filter by status
+        status_label = QLabel('Status:')
+        self.status_filter = QComboBox()
+        self.status_filter.addItems(['All', 'Applied', 'Interview', 'Rejected', 'Accepted'])
+        self.status_filter.currentTextChanged.connect(self.filter_applications)
+        search_layout.addWidget(status_label)
+        search_layout.addWidget(self.status_filter)
+        
+        # Clear filters button
+        clear_filters_btn = QPushButton('Clear Filters')
+        clear_filters_btn.clicked.connect(self.clear_filters)
+        search_layout.addWidget(clear_filters_btn)
+        
+        layout.addLayout(search_layout)
+
+        # Applications tree
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(['Company/Position', 'Application Date', 'Interview Round', 'Last Contact', 'Status'])
+        self.tree.setColumnWidth(0, 300)  # Make the first column wider
+        self.tree.setAlternatingRowColors(True)
+        layout.addWidget(self.tree)
+
+        # Tree control buttons
+        tree_controls = QHBoxLayout()
+        
+        # Expand/Collapse buttons
+        expand_all_btn = QPushButton('Expand All')
+        expand_all_btn.clicked.connect(self.tree.expandAll)
+        tree_controls.addWidget(expand_all_btn)
+        
+        collapse_all_btn = QPushButton('Collapse All')
+        collapse_all_btn.clicked.connect(self.tree.collapseAll)
+        tree_controls.addWidget(collapse_all_btn)
+        
+        # Sort options
+        sort_label = QLabel('Sort by:')
+        tree_controls.addWidget(sort_label)
+        
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(['Date (Newest First)', 'Date (Oldest First)', 
+                                'Position (A-Z)', 'Position (Z-A)',
+                                'Status (A-Z)', 'Status (Z-A)',
+                                'Interview Round (High-Low)', 'Interview Round (Low-High)'])
+        self.sort_combo.currentIndexChanged.connect(self.sort_applications)
+        tree_controls.addWidget(self.sort_combo)
+        
+        tree_controls.addStretch()  # Push controls to the left
+        layout.addLayout(tree_controls)
 
         # Update section
         update_layout = QHBoxLayout()
@@ -81,6 +149,56 @@ class JobTrackerApp(QMainWindow):
         # Load initial data
         self.load_applications()
 
+    def update_company_suggestions(self, text):
+        if len(text) < 3:
+            self.company_model.setStringList([])
+        else:
+            companies = self.db.get_unique_companies()
+            # Sort companies by frequency of use (most used first)
+            company_counts = {}
+            for app in self.db.get_all_applications_grouped():
+                company_name = app[1]  # company_name is at index 1
+                if app[3] is not None:  # Only count if there's an application
+                    company_counts[company_name] = company_counts.get(company_name, 0) + 1
+            companies.sort(key=lambda x: (-company_counts.get(x, 0), x.lower()))
+            self.company_model.setStringList(companies)
+
+    def update_position_suggestions(self, text):
+        if len(text) < 3:
+            self.position_model.setStringList([])
+        else:
+            positions = self.db.get_unique_positions()
+            # Sort positions by frequency of use (most used first)
+            position_counts = {}
+            for app in self.db.get_all_applications_grouped():
+                position = app[4]  # position is at index 4
+                if app[3] is not None:  # Only count if there's an application
+                    position_counts[position] = position_counts.get(position, 0) + 1
+            positions.sort(key=lambda x: (-position_counts.get(x, 0), x.lower()))
+            self.position_model.setStringList(positions)
+
+    def update_company_completer(self):
+        companies = self.db.get_unique_companies()
+        # Sort companies by frequency of use (most used first)
+        company_counts = {}
+        for app in self.db.get_all_applications_grouped():
+            company_name = app[1]  # company_name is at index 1
+            if app[3] is not None:  # Only count if there's an application
+                company_counts[company_name] = company_counts.get(company_name, 0) + 1
+        companies.sort(key=lambda x: (-company_counts.get(x, 0), x.lower()))
+        self.company_model.setStringList(companies)
+
+    def update_position_completer(self):
+        positions = self.db.get_unique_positions()
+        # Sort positions by frequency of use (most used first)
+        position_counts = {}
+        for app in self.db.get_all_applications_grouped():
+            position = app[4]  # position is at index 4
+            if app[3] is not None:  # Only count if there's an application
+                position_counts[position] = position_counts.get(position, 0) + 1
+        positions.sort(key=lambda x: (-position_counts.get(x, 0), x.lower()))
+        self.position_model.setStringList(positions)
+
     def add_application(self):
         company = self.company_input.text().strip()
         position = self.position_input.text().strip()
@@ -94,6 +212,10 @@ class JobTrackerApp(QMainWindow):
         
         # Add to database
         self.db.add_application(company, position, company_description)
+        
+        # Update completers with new values
+        self.update_company_completer()
+        self.update_position_completer()
         
         # Clear inputs
         self.company_input.clear()
@@ -157,28 +279,174 @@ class JobTrackerApp(QMainWindow):
             print(f"Error fetching company data: {e}")
             return f"Description for {company_name} (API error)"
 
+    def sort_applications(self):
+        sort_option = self.sort_combo.currentText()
+        
+        # Store expanded state of companies
+        expanded_companies = set()
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if item.isExpanded():
+                expanded_companies.add(item.text(0))
+        
+        # Sort each company's applications
+        for i in range(self.tree.topLevelItemCount()):
+            company_item = self.tree.topLevelItem(i)
+            applications = []
+            
+            # Collect all applications
+            for j in range(company_item.childCount()):
+                app_item = company_item.child(j)
+                applications.append(app_item)
+                company_item.removeChild(app_item)
+            
+            # Sort applications based on selected option
+            if sort_option == 'Date (Newest First)':
+                applications.sort(key=lambda x: x.text(1), reverse=True)
+            elif sort_option == 'Date (Oldest First)':
+                applications.sort(key=lambda x: x.text(1))
+            elif sort_option == 'Position (A-Z)':
+                applications.sort(key=lambda x: x.text(0))
+            elif sort_option == 'Position (Z-A)':
+                applications.sort(key=lambda x: x.text(0), reverse=True)
+            elif sort_option == 'Status (A-Z)':
+                applications.sort(key=lambda x: x.text(4))
+            elif sort_option == 'Status (Z-A)':
+                applications.sort(key=lambda x: x.text(4), reverse=True)
+            elif sort_option == 'Interview Round (High-Low)':
+                applications.sort(key=lambda x: int(x.text(2)), reverse=True)
+            elif sort_option == 'Interview Round (Low-High)':
+                applications.sort(key=lambda x: int(x.text(2)))
+            
+            # Add sorted applications back
+            for app in applications:
+                company_item.addChild(app)
+        
+        # Restore expanded state
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if item.text(0) in expanded_companies:
+                item.setExpanded(True)
+
+    def filter_applications(self):
+        search_text = self.search_input.text().lower()
+        status_filter = self.status_filter.currentText()
+        
+        # Store expanded state of companies
+        expanded_companies = set()
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if item.isExpanded():
+                expanded_companies.add(item.text(0))
+        
+        # Filter each company and its applications
+        for i in range(self.tree.topLevelItemCount()):
+            company_item = self.tree.topLevelItem(i)
+            company_name = company_item.text(0).lower()
+            company_visible = False
+            
+            # Check if company matches search
+            if search_text in company_name:
+                company_visible = True
+            
+            # Check applications
+            for j in range(company_item.childCount()):
+                app_item = company_item.child(j)
+                position = app_item.text(0).lower()
+                status = app_item.text(4)
+                
+                # Check if application matches filters
+                app_visible = True
+                if search_text and search_text not in position:
+                    app_visible = False
+                if status_filter != 'All' and status != status_filter:
+                    app_visible = False
+                
+                # Show/hide application
+                app_item.setHidden(not app_visible)
+                
+                # If any application is visible, show the company
+                if app_visible:
+                    company_visible = True
+            
+            # Show/hide company
+            company_item.setHidden(not company_visible)
+            
+            # Restore expanded state if company is visible
+            if company_visible and company_item.text(0) in expanded_companies:
+                company_item.setExpanded(True)
+
+    def clear_filters(self):
+        self.search_input.clear()
+        self.status_filter.setCurrentText('All')
+        self.filter_applications()
+
     def load_applications(self):
-        applications = self.db.get_all_applications()
-        self.table.setRowCount(len(applications))
+        self.tree.clear()
         self.company_combo.clear()
-
-        for row, app in enumerate(applications):
-            self.table.setItem(row, 0, QTableWidgetItem(str(app[0])))
-            self.table.setItem(row, 1, QTableWidgetItem(app[1]))
-            self.table.setItem(row, 2, QTableWidgetItem(app[2]))
-            self.table.setItem(row, 3, QTableWidgetItem(app[3]))
-            self.table.setItem(row, 4, QTableWidgetItem(str(app[5])))
-            self.table.setItem(row, 5, QTableWidgetItem(str(app[6] or '')))
-            self.table.setItem(row, 6, QTableWidgetItem(app[7]))
-
-            self.company_combo.addItem(f"{app[1]} - {app[2]}", app[0])
+        
+        # Get all applications grouped by company
+        applications = self.db.get_all_applications_grouped()
+        
+        # Dictionary to store company items
+        company_items = {}
+        
+        for app in applications:
+            company_id = app[0]
+            company_name = app[1]
+            company_description = app[2]
+            application_id = app[3]
+            
+            # Skip if this is just a company with no applications
+            if application_id is None:
+                continue
+                
+            position = app[4]
+            application_date = app[5]
+            interview_round = app[6]
+            last_contact = app[7]
+            status = app[8]
+            
+            # Create company item if it doesn't exist
+            if company_id not in company_items:
+                company_item = QTreeWidgetItem(self.tree)
+                company_item.setText(0, company_name)
+                if company_description:
+                    company_item.setToolTip(0, company_description)
+                company_items[company_id] = company_item
+                self.company_combo.addItem(f"{company_name}", company_id)
+            
+            # Create application item
+            app_item = QTreeWidgetItem(company_items[company_id])
+            app_item.setText(0, position)
+            app_item.setText(1, application_date)
+            app_item.setText(2, str(interview_round))
+            app_item.setText(3, str(last_contact or ''))
+            app_item.setText(4, status)
+            app_item.setData(0, Qt.ItemDataRole.UserRole, application_id)
+        
+        # Apply initial sort (newest first)
+        self.sort_combo.setCurrentText('Date (Newest First)')
+        self.sort_applications()
 
     def update_application(self):
         if self.company_combo.currentIndex() == -1:
             QMessageBox.warning(self, 'Error', 'Please select a company')
             return
 
-        application_id = self.company_combo.currentData()
+        # Get the selected application ID from the tree
+        selected_items = self.tree.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, 'Error', 'Please select an application to update')
+            return
+            
+        selected_item = selected_items[0]
+        # Only allow updating individual applications, not company groups
+        if selected_item.parent() is None:
+            QMessageBox.warning(self, 'Error', 'Please select a specific application to update')
+            return
+            
+        application_id = selected_item.data(0, Qt.ItemDataRole.UserRole)
         round_number = int(self.round_combo.currentText())
         
         self.db.update_interview_round(application_id, round_number)
