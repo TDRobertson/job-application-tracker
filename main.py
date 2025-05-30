@@ -13,7 +13,14 @@ from database import Database
 from cache import CompanyCache
 
 class JobTrackerApp(QMainWindow):
+    """
+    Main application window for the Job Application Tracker.
+    Handles UI setup, user interactions, and communication with the database.
+    """
     def __init__(self):
+        """
+        Initialize the main window, database, and UI components.
+        """
         super().__init__()
         self.db = Database()
         self.cache = CompanyCache()
@@ -22,8 +29,11 @@ class JobTrackerApp(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
+        """
+        Set up the user interface, including all widgets, layouts, and signals.
+        """
         self.setWindowTitle('Job Application Tracker')
-        self.setGeometry(100, 100, 1000, 700)  # Made window taller
+        self.setGeometry(100, 100, 1000, 700)  
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -39,7 +49,7 @@ class JobTrackerApp(QMainWindow):
         layout.addLayout(counter_layout)
 
         # Input form
-        form_layout = QVBoxLayout()  # Changed to vertical layout
+        form_layout = QVBoxLayout()  #  vertical layout
         
         # Company name input with enhanced autocomplete
         company_layout = QHBoxLayout()
@@ -203,6 +213,10 @@ class JobTrackerApp(QMainWindow):
         self.load_applications()
 
     def update_company_suggestions(self, text):
+        """
+        Update the company autocomplete suggestions based on user input.
+        Only show suggestions if the input is at least 3 characters.
+        """
         if len(text) < 3:
             self.company_model.setStringList([])
         else:
@@ -217,6 +231,10 @@ class JobTrackerApp(QMainWindow):
             self.company_model.setStringList(companies)
 
     def update_position_suggestions(self, text):
+        """
+        Update the position autocomplete suggestions based on user input.
+        Only show suggestions if the input is at least 3 characters.
+        """
         if len(text) < 3:
             self.position_model.setStringList([])
         else:
@@ -231,6 +249,9 @@ class JobTrackerApp(QMainWindow):
             self.position_model.setStringList(positions)
 
     def update_company_completer(self):
+        """
+        Refresh the company autocomplete model with sorted suggestions.
+        """
         companies = self.db.get_unique_companies()
         # Sort companies by frequency of use (most used first)
         company_counts = {}
@@ -242,6 +263,9 @@ class JobTrackerApp(QMainWindow):
         self.company_model.setStringList(companies)
 
     def update_position_completer(self):
+        """
+        Refresh the position autocomplete model with sorted suggestions.
+        """
         positions = self.db.get_unique_positions()
         # Sort positions by frequency of use (most used first)
         position_counts = {}
@@ -253,6 +277,13 @@ class JobTrackerApp(QMainWindow):
         self.position_model.setStringList(positions)
 
     def validate_url(self, url):
+        """
+        Validate the format of a URL. Accepts empty strings as valid (optional field).
+        Args:
+            url (str): The URL to validate.
+        Returns:
+            bool: True if valid or empty, False otherwise.
+        """
         if not url:  # Empty URL is valid (optional field)
             return True
         try:
@@ -262,6 +293,11 @@ class JobTrackerApp(QMainWindow):
             return False
 
     def add_application(self):
+        """
+        Add a new application to the database using the form fields.
+        Validates required fields and URL format.
+        Updates the UI and application counter after adding.
+        """
         company = self.company_input.text().strip()
         position = self.position_input.text().strip()
         status = self.status_input.currentText()
@@ -348,6 +384,10 @@ class JobTrackerApp(QMainWindow):
             return f"Description for {company_name} (API error)"
 
     def sort_applications(self):
+        """
+        Sort the applications within each company based on the selected sort option.
+        Preserves expanded/collapsed state of companies.
+        """
         sort_option = self.sort_combo.currentText()
         
         # Store expanded state of companies
@@ -397,6 +437,10 @@ class JobTrackerApp(QMainWindow):
                 item.setExpanded(True)
 
     def filter_applications(self):
+        """
+        Filter the displayed applications based on search text and status filter.
+        Only shows companies and applications that match the criteria.
+        """
         search_text = self.search_input.text().lower()
         status_filter = self.status_filter.currentText()
         
@@ -445,11 +489,20 @@ class JobTrackerApp(QMainWindow):
                 company_item.setExpanded(True)
 
     def clear_filters(self):
+        """
+        Clear all search and filter fields and show all applications.
+        """
         self.search_input.clear()
         self.status_filter.setCurrentText('All')
         self.filter_applications()
 
     def handle_tree_click(self, item, column):
+        """
+        Handle clicks on the tree widget. Opens the company website if the website column is clicked.
+        Args:
+            item (QTreeWidgetItem): The clicked item.
+            column (int): The column index that was clicked.
+        """
         # If the website column is clicked and it has a valid URL, open it
         if column == 1:
             url = item.text(1)
@@ -466,6 +519,10 @@ class JobTrackerApp(QMainWindow):
         return colors.get(status, '#000000')  # Default to black if status not found
 
     def load_applications(self):
+        """
+        Load all applications from the database and display them in the tree view.
+        Updates the company combo box and application counter.
+        """
         self.tree.clear()
         self.company_combo.clear()
         
@@ -524,6 +581,10 @@ class JobTrackerApp(QMainWindow):
         self.counter_label.setText(f'Total Applications: {total_apps}')
 
     def update_application(self):
+        """
+        Update the interview round and status for the selected application.
+        Validates selection and updates the database and UI.
+        """
         if self.company_combo.currentIndex() == -1:
             QMessageBox.warning(self, 'Error', 'Please select a company')
             return
@@ -549,6 +610,11 @@ class JobTrackerApp(QMainWindow):
         self.load_applications()
 
     def closeEvent(self, event):
+        """
+        Handle the window close event. Clears expired cache entries.
+        Args:
+            event (QCloseEvent): The close event.
+        """
         # Clear expired cache entries when closing the application
         self.cache.clear_expired()
         super().closeEvent(event)
