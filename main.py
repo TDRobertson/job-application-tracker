@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
                             QComboBox, QTreeWidget, QTreeWidgetItem, QMessageBox,
-                            QCompleter, QHeaderView, QToolBar)
+                            QCompleter, QHeaderView, QToolBar, QTabWidget)
 from PyQt6.QtCore import Qt, QStringListModel, QUrl
 from PyQt6.QtGui import QDesktopServices
 from database import Database
@@ -40,11 +40,17 @@ class JobTrackerApp(QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
 
-        # Application counter
+        # Application counters
         counter_layout = QHBoxLayout()
         self.counter_label = QLabel('Total Applications: 0')
+        self.interview_counter_label = QLabel('Interviews: 0')
+        self.rejected_counter_label = QLabel('Rejections: 0')
         self.counter_label.setStyleSheet('font-size: 14px; font-weight: bold;')
+        self.interview_counter_label.setStyleSheet('font-size: 14px; font-weight: bold; color: #f5a623;')
+        self.rejected_counter_label.setStyleSheet('font-size: 14px; font-weight: bold; color: #d0021b;')
         counter_layout.addWidget(self.counter_label)
+        counter_layout.addWidget(self.interview_counter_label)
+        counter_layout.addWidget(self.rejected_counter_label)
         counter_layout.addStretch()
         layout.addLayout(counter_layout)
 
@@ -146,14 +152,33 @@ class JobTrackerApp(QMainWindow):
         
         layout.addLayout(search_layout)
 
-        # Applications tree
+        # Tabs for active/rejected applications
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        # Active Applications tab
+        active_tab = QWidget()
+        active_layout = QVBoxLayout(active_tab)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['Company/Position', 'Website', 'Application Date', 'Interview Round', 'Last Contact', 'Status'])
-        self.tree.setColumnWidth(0, 200)  # Company/Position
-        self.tree.setColumnWidth(1, 200)  # Website
+        self.tree.setColumnWidth(0, 200)
+        self.tree.setColumnWidth(1, 200)
         self.tree.setAlternatingRowColors(True)
         self.tree.itemClicked.connect(self.handle_tree_click)
-        layout.addWidget(self.tree)
+        active_layout.addWidget(self.tree)
+        self.tabs.addTab(active_tab, 'Active Applications')
+
+        # Rejected Applications tab
+        rejected_tab = QWidget()
+        rejected_layout = QVBoxLayout(rejected_tab)
+        self.rejected_tree = QTreeWidget()
+        self.rejected_tree.setHeaderLabels(['Company/Position', 'Website', 'Application Date', 'Interview Round', 'Last Contact', 'Status'])
+        self.rejected_tree.setColumnWidth(0, 200)
+        self.rejected_tree.setColumnWidth(1, 200)
+        self.rejected_tree.setAlternatingRowColors(True)
+        self.rejected_tree.itemClicked.connect(self.handle_tree_click)
+        rejected_layout.addWidget(self.rejected_tree)
+        self.tabs.addTab(rejected_tab, 'Rejected Applications')
 
         # Tree control buttons
         tree_controls = QHBoxLayout()
@@ -383,32 +408,26 @@ class JobTrackerApp(QMainWindow):
             print(f"Error fetching company data: {e}")
             return f"Description for {company_name} (API error)"
 
-    def sort_applications(self):
+    def sort_applications(self, tree=None):
         """
         Sort the applications within each company based on the selected sort option.
-        Preserves expanded/collapsed state of companies.
+        If tree is None, sorts the main (active) tree. Otherwise, sorts the given tree.
         """
+        if tree is None:
+            tree = self.tree
         sort_option = self.sort_combo.currentText()
-        
-        # Store expanded state of companies
         expanded_companies = set()
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
             if item.isExpanded():
                 expanded_companies.add(item.text(0))
-        
-        # Sort each company's applications
-        for i in range(self.tree.topLevelItemCount()):
-            company_item = self.tree.topLevelItem(i)
+        for i in range(tree.topLevelItemCount()):
+            company_item = tree.topLevelItem(i)
             applications = []
-            
-            # Collect all applications
             for j in range(company_item.childCount()):
                 app_item = company_item.child(j)
                 applications.append(app_item)
                 company_item.removeChild(app_item)
-            
-            # Sort applications based on selected option
             if sort_option == 'Date (Newest First)':
                 applications.sort(key=lambda x: x.text(2), reverse=True)
             elif sort_option == 'Date (Oldest First)':
@@ -425,66 +444,46 @@ class JobTrackerApp(QMainWindow):
                 applications.sort(key=lambda x: int(x.text(3)), reverse=True)
             elif sort_option == 'Interview Round (Low-High)':
                 applications.sort(key=lambda x: int(x.text(3)))
-            
-            # Add sorted applications back
             for app in applications:
                 company_item.addChild(app)
-        
-        # Restore expanded state
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
             if item.text(0) in expanded_companies:
                 item.setExpanded(True)
 
     def filter_applications(self):
         """
         Filter the displayed applications based on search text and status filter.
-        Only shows companies and applications that match the criteria.
+        Only shows companies and applications that match the criteria in the current tab.
         """
         search_text = self.search_input.text().lower()
         status_filter = self.status_filter.currentText()
-        
-        # Store expanded state of companies
+        # Use the correct tree for the current tab
+        current_tree = self.tree if self.tabs.currentIndex() == 0 else self.rejected_tree
         expanded_companies = set()
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
+        for i in range(current_tree.topLevelItemCount()):
+            item = current_tree.topLevelItem(i)
             if item.isExpanded():
                 expanded_companies.add(item.text(0))
-        
-        # Filter each company and its applications
-        for i in range(self.tree.topLevelItemCount()):
-            company_item = self.tree.topLevelItem(i)
+        for i in range(current_tree.topLevelItemCount()):
+            company_item = current_tree.topLevelItem(i)
             company_name = company_item.text(0).lower()
             company_visible = False
-            
-            # Check if company matches search
             if search_text in company_name:
                 company_visible = True
-            
-            # Check applications
             for j in range(company_item.childCount()):
                 app_item = company_item.child(j)
                 position = app_item.text(0).lower()
                 status = app_item.text(5)
-                
-                # Check if application matches filters
                 app_visible = True
                 if search_text and search_text not in position:
                     app_visible = False
                 if status_filter != 'All' and status != status_filter:
                     app_visible = False
-                
-                # Show/hide application
                 app_item.setHidden(not app_visible)
-                
-                # If any application is visible, show the company
                 if app_visible:
                     company_visible = True
-            
-            # Show/hide company
             company_item.setHidden(not company_visible)
-            
-            # Restore expanded state if company is visible
             if company_visible and company_item.text(0) in expanded_companies:
                 company_item.setExpanded(True)
 
@@ -520,65 +519,95 @@ class JobTrackerApp(QMainWindow):
 
     def load_applications(self):
         """
-        Load all applications from the database and display them in the tree view.
-        Updates the company combo box and application counter.
+        Load all applications from the database and display them in the appropriate tree views.
+        Updates the company combo box and application counters.
         """
         self.tree.clear()
+        self.rejected_tree.clear()
         self.company_combo.clear()
-        
+
         # Get all applications grouped by company
         applications = self.db.get_all_applications_grouped()
-        
-        # Dictionary to store company items
+
+        # Dictionaries to store company items for each tree
         company_items = {}
-        company_websites = {}
-        
+        rejected_company_items = {}
+
+        # Counters
+        total_apps = 0
+        interview_count = 0
+        rejected_count = 0
+
         for app in applications:
             company_id = app[0]
             company_name = app[1]
             company_description = app[2]
             application_id = app[3]
-            
-            # Skip if this is just a company with no applications
             if application_id is None:
                 continue
-                
             position = app[4]
             application_date = app[5]
             interview_round = app[6]
             last_contact = app[7]
             status = app[8]
-            
-            # Create company item if it doesn't exist
-            if company_id not in company_items:
-                company_info = self.db.get_company_info(company_id)
-                website = ''
-                if company_info:
-                    _, _, website = company_info
-                company_item = QTreeWidgetItem(self.tree)
-                company_item.setText(0, company_name)
-                company_item.setText(1, website or '')
-                company_items[company_id] = company_item
-                company_websites[company_id] = website
-                self.company_combo.addItem(f"{company_name}", company_id)
-            
-            # Create application item
-            app_item = QTreeWidgetItem(company_items[company_id])
-            app_item.setText(0, position)
-            app_item.setText(1, '')  # No website for application rows
-            app_item.setText(2, application_date)
-            app_item.setText(3, str(interview_round))
-            app_item.setText(4, str(last_contact or ''))
-            app_item.setText(5, status)
-            app_item.setData(0, Qt.ItemDataRole.UserRole, application_id)
-        
-        # Apply initial sort (newest first)
+
+            # Count for stats
+            total_apps += 1
+            if status == 'Interview':
+                interview_count += 1
+            if status == 'Rejected':
+                rejected_count += 1
+
+            # Choose which tree to display in
+            if status == 'Rejected':
+                # Rejected tab
+                if company_id not in rejected_company_items:
+                    company_info = self.db.get_company_info(company_id)
+                    website = ''
+                    if company_info:
+                        _, _, website = company_info
+                    company_item = QTreeWidgetItem(self.rejected_tree)
+                    company_item.setText(0, company_name)
+                    company_item.setText(1, website or '')
+                    rejected_company_items[company_id] = company_item
+                app_item = QTreeWidgetItem(rejected_company_items[company_id])
+                app_item.setText(0, position)
+                app_item.setText(1, '')
+                app_item.setText(2, application_date)
+                app_item.setText(3, str(interview_round))
+                app_item.setText(4, str(last_contact or ''))
+                app_item.setText(5, status)
+                app_item.setData(0, Qt.ItemDataRole.UserRole, application_id)
+            else:
+                # Active tab
+                if company_id not in company_items:
+                    company_info = self.db.get_company_info(company_id)
+                    website = ''
+                    if company_info:
+                        _, _, website = company_info
+                    company_item = QTreeWidgetItem(self.tree)
+                    company_item.setText(0, company_name)
+                    company_item.setText(1, website or '')
+                    company_items[company_id] = company_item
+                    self.company_combo.addItem(f"{company_name}", company_id)
+                app_item = QTreeWidgetItem(company_items[company_id])
+                app_item.setText(0, position)
+                app_item.setText(1, '')
+                app_item.setText(2, application_date)
+                app_item.setText(3, str(interview_round))
+                app_item.setText(4, str(last_contact or ''))
+                app_item.setText(5, status)
+                app_item.setData(0, Qt.ItemDataRole.UserRole, application_id)
+
+        # Apply initial sort (newest first) for both trees
         self.sort_combo.setCurrentText('Date (Newest First)')
         self.sort_applications()
+        self.sort_applications(tree=self.rejected_tree)
 
-        # Update application counter
-        total_apps = self.db.get_total_applications()
+        # Update counters
         self.counter_label.setText(f'Total Applications: {total_apps}')
+        self.interview_counter_label.setText(f'Interviews: {interview_count}')
+        self.rejected_counter_label.setText(f'Rejections: {rejected_count}')
 
     def update_application(self):
         """
